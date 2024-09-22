@@ -8,10 +8,10 @@ TESTVAR = os.environ.get("TESTVAR")
 APIBASE = os.environ.get("APIBASE")
 
 # gens database for storing generated image
-if not os.path.exists('database/gens'):
-    os.makedirs('database/gens')
+if not os.path.exists('/database/gens'):
+    os.makedirs('/database/gens')
 
-tables = database('database/gens.db').t
+tables = database('/database/gens.db').t
 gens = tables.gens
 if not gens in tables:
     gens.create(prompt=str, id=int, folder=str, pk='id')
@@ -234,7 +234,7 @@ def static(fname: str, ext: str): return FileResponse(f'{fname}.{ext}')
 @app.post("/")
 def post(prompt: str, negative_prompt: str, width: int, height: int, num_inference_steps: int,
          guidance_scale: float, clip_skip: int, seed: int, sampler: str):
-    folder = f"database/gens/{str(uuid.uuid4())}"
+    folder = f"/database/gens/{str(uuid.uuid4())}"
     os.makedirs(folder, exist_ok=True)
     g = gens.insert(Generation(prompt=prompt, folder=folder))
 
