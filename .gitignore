@@ -1,0 +1,20 @@
+# Environment
+/venv
+/.idea
+.sesskey
+.env
+__pycache__
+
+# Model Folder
+/api/model/*
+!/api/model/put_model_here
+
+# Database Folder
+/database/*
+!/database/gens
+
+/database/gens/*
+!/database/gens/gen_results_will_be_put_here
+
+# Test Files
+/test_api.py
