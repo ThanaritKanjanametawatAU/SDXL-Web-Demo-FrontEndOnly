@@ -55,9 +55,10 @@ custom_css = """
 </style>
 """
 
+# Add this near the top of your file, after the imports
+SECRET_KEY = os.environ.get("SECRET_KEY") or os.urandom(24).hex()
 
-
-app, rt = fast_app(hdrs=(picolink, gridlink, NotStr(custom_css)))
+app, rt = fast_app(hdrs=(picolink, gridlink, NotStr(custom_css)), secret_key=SECRET_KEY)
 
 @rt("/")
 def home():
