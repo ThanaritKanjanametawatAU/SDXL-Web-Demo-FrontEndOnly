@@ -25,11 +25,19 @@ MONGO_URI = os.environ.get("MONGO_URL")
 # Lazy imports
 from functools import lru_cache
 
+import certifi
+
 @lru_cache(maxsize=None)
 def get_db_client():
     from pymongo import MongoClient
     logger.info("Connecting to MongoDB...")
-    client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
+    
+    # Modify the connection string
+    connection_string = f"{MONGO_URI}&tlsAllowInvalidCertificates=true&tls=true&tlsInsecure=true"
+    
+    client = MongoClient(connection_string, 
+                         serverSelectionTimeoutMS=5000,
+                         tlsCAFile=certifi.where())  # Add this line
     try:
         # Test the connection
         client.server_info()
