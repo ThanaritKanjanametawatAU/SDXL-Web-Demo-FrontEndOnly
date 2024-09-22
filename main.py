@@ -2,10 +2,10 @@ from fasthtml.common import *
 from dotenv import load_dotenv
 from fastcore.parallel import threaded
 import uuid, uvicorn
-from api.call_api import *
 
 load_dotenv()
 TESTVAR = os.environ.get("TESTVAR")
+APIBASE = os.environ.get("APIBASE")
 
 # gens database for storing generated image
 if not os.path.exists('database/gens'):
@@ -269,7 +269,7 @@ def post(prompt: str, negative_prompt: str, width: int, height: int, num_inferen
 @threaded
 def generate_and_save(payload, id, folder):
     save_path = f"{folder}/{id}.png"
-    generate_image(url="http://127.0.0.1:8000/generate", payload=payload, save_path=save_path)
+    generate_image(url=APIBASE, payload=payload, save_path=save_path)
     return True
 
 
