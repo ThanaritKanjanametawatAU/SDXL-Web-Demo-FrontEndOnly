@@ -1,21 +1,25 @@
 from fasthtml.common import *
 from dotenv import load_dotenv
 from fastcore.parallel import threaded
-import uuid, uvicorn
+import uuid
+from api.text2img import text2img
+from pymongo import MongoClient
+import base64
+from io import BytesIO
+from datetime import datetime
+import time
+import random
+import json
 
 load_dotenv()
 TESTVAR = os.environ.get("TESTVAR")
 APIBASE = os.environ.get("APIBASE")
+MONGO_URI = os.environ.get("MONGO_URL")
 
-# gens database for storing generated image
-if not os.path.exists('database/gens'):
-    os.makedirs('database/gens')
-
-tables = database('database/gens.db').t
-gens = tables.gens
-if not gens in tables:
-    gens.create(prompt=str, id=int, folder=str, pk='id')
-Generation = gens.dataclass()
+# MongoDB connection
+client = MongoClient(MONGO_URI)
+db = client['sdxl_demo_db']
+gens = db['generated_images']
 
 # Flexbox CSS (http://flexboxgrid.com/)
 gridlink = Link(rel="stylesheet", href="https://cdnjs.cloudflare.com/ajax/libs/flexboxgrid/6.3.1/flexboxgrid.min.css",
@@ -44,6 +48,9 @@ custom_css = """
     .range-value:focus { outline: none; border-color: #60a5fa; }
     .prompt-label { font-size: 18px; color: #93c5fd; margin-bottom: 12px; }
     .prompt-textarea { min-height: 120px; resize: vertical; }
+    .progress-bar {
+        transition: width 0.5s ease-in-out;
+    }
 </style>
 """
 
@@ -117,7 +124,7 @@ def home():
         Div(
             Label("Sampler", cls="prompt-label"),
             Select(
-                Option("DPM++ 2M", value="dpmpp_2m", selected=True),
+                Option("DPM++ 2M SDE", value="DPM++ 2M SDE", selected=True),
                 id="sampler", name="sampler", cls="form-control"
             )
         )
@@ -126,8 +133,8 @@ def home():
     add = Form(*form_inputs, Button("Generate 1 Image", cls="btn-primary"),
                hx_post="/", target_id='gen-list', hx_swap="afterbegin", cls="card")
 
-    gen_containers = [generation_preview(g) for g in gens(limit=10)]  # Start with last 10
-    gen_list = Div(*reversed(gen_containers), id='gen-list', cls="image-grid")  # flexbox container
+    gen_containers = [generation_preview(g) for g in gens.find().sort('metadata.date_created', -1).limit(10)]
+    gen_list = Div(*gen_containers, id='gen-list', cls="image-grid")  # flexbox container
 
     return Title('Image Generation SDXL'), Main(
         H1('Image Generation SDXL', cls="text-center", style="color: #60a5fa; margin-bottom: 24px;"),
@@ -205,24 +212,41 @@ def home():
 
 # Show the image (if available) and prompt for a generation
 def generation_preview(g):
-    image_path = f"{g.folder}/{g.id}.png"
-    if os.path.exists(image_path):
+    if g and 'image_base64' in g:
+        prompt = g.get('metadata', {}).get('prompt', 'No prompt available')
         return Div(
-            Img(src=image_path, alt="Generated image", style="width: 100%; border-radius: 8px;"),
-            Div(P(B("Prompt: "), g.prompt, style="margin-top: 12px; font-size: 14px; color: #93c5fd;")),
-            cls="card image-card", id=f'gen-{g.id}'
+            Img(src=f"data:image/png;base64,{g['image_base64']}", alt="Generated image", style="width: 100%; border-radius: 8px;"),
+            Div(P(B("Prompt: "), prompt, style="margin-top: 12px; font-size: 14px; color: #93c5fd;")),
+            cls="card image-card", id=f'gen-{g["image_id"]}'
         )
-    return Div(
-        P(f"Generating image {g.id} with prompt: {g.prompt}", style="color: #93c5fd;"),
-        cls="card image-card", id=f'gen-{g.id}',
-        hx_get=f"/gens/{g.id}", hx_trigger="every 2s", hx_swap="outerHTML"
-    )
+    elif g:
+        prompt = g.get('metadata', {}).get('prompt', 'No prompt available')
+        return Div(
+            P(f"Generating image with prompt: {prompt}", style="color: #93c5fd;"),
+            Div(cls="progress-bar", style="width: 0%; height: 5px; background-color: #4CAF50; transition: width 0.5s;"),
+            cls="card image-card", id=f'gen-{g["image_id"]}',
+            hx_get=f"/gens/{g['image_id']}", hx_trigger="every 500ms", hx_swap="outerHTML"
+        )
+    else:
+        return Div(P("No image data available", style="color: #93c5fd;"), cls="card image-card")
 
 
 # A pending preview keeps polling this route until we return the image preview
 @app.get("/gens/{id}")
-def preview(id: int):
-    return generation_preview(gens.get(id))
+def preview(id: str):
+    g = gens.find_one({'image_id': id})
+    if g and 'image_base64' in g:
+        return generation_preview(g)
+    elif g:
+        progress = min((time.time() - g['metadata']['start_time']) / 10 * 100, 99)  # Assume 10 seconds generation time
+        return Div(
+            P(f"Generating image with prompt: {g['metadata']['prompt']}", style="color: #93c5fd;"),
+            Div(cls="progress-bar", style=f"width: {progress}%; height: 5px; background-color: #4CAF50; transition: width 0.5s;"),
+            cls="card image-card", id=f'gen-{g["image_id"]}',
+            hx_get=f"/gens/{g['image_id']}", hx_trigger="every 500ms", hx_swap="outerHTML"
+        )
+    else:
+        return Div(P("No image data available", style="color: #93c5fd;"), cls="card image-card")
 
 
 # For images, CSS, etc.
@@ -234,25 +258,37 @@ def static(fname: str, ext: str): return FileResponse(f'{fname}.{ext}')
 @app.post("/")
 def post(prompt: str, negative_prompt: str, width: int, height: int, num_inference_steps: int,
          guidance_scale: float, clip_skip: int, seed: int, sampler: str):
-    folder = f"database/gens/{str(uuid.uuid4())}"
-    os.makedirs(folder, exist_ok=True)
-    g = gens.insert(Generation(prompt=prompt, folder=folder))
+    image_id = str(uuid.uuid4())
 
     payload = {
         "prompt": prompt,
-        # "negative_prompt": negative_prompt,
-        "height": height,
-        "width": width,
-        "num_inference_steps": num_inference_steps,
-        "guidance_scale": guidance_scale,
-        "clip_skip": clip_skip,
-        # "sampler": sampler,
+        "negative_prompt": negative_prompt,
         "seed": seed,
+        "width": width,
+        "height": height,
+        "steps": num_inference_steps,
+        "sampler_name": sampler,
+        "scheduler": "Karras",
+        "cfg_scale": guidance_scale,
+        "batch_size": 1,
+        "hr_checkpoint_name": "NovelAIv2-7.safetensors",
+        "override_settings": {
+            "CLIP_stop_at_last_layers": clip_skip
+        }
     }
 
-    print(payload)
+    # Create initial document with start time
+    initial_doc = {
+        'image_id': image_id,
+        'metadata': {
+            'prompt': prompt,
+            'start_time': time.time(),
+            'date_created': datetime.utcnow()
+        }
+    }
+    gens.insert_one(initial_doc)
 
-    generate_and_save(payload, g.id, g.folder)
+    generate_and_save(payload, image_id)
 
     # Clear inputs (you may need to adjust this based on your needs)
     clear_inputs = [
@@ -262,14 +298,23 @@ def post(prompt: str, negative_prompt: str, width: int, height: int, num_inferen
                  cls="form-control prompt-textarea", hx_swap_oob='true'),
     ]
 
-    return generation_preview(g), *clear_inputs
+    return generation_preview(gens.find_one({'image_id': image_id})), *clear_inputs
 
 
-# Generate an image and save it to the folder (in a separate thread)
+# Generate an image and save it to MongoDB (in a separate thread)
 @threaded
-def generate_and_save(payload, id, folder):
-    save_path = f"{folder}/{id}.png"
-    generate_image(url=APIBASE, payload=payload, save_path=save_path)
+def generate_and_save(payload, image_id):
+    image_base64, png_info = text2img(payload=payload)
+
+    # Parse png_info
+    png_info = json.loads(png_info)
+
+    # Update MongoDB document with image data
+    gens.update_one(
+        {'image_id': image_id},
+        {'$set': {'image_base64': image_base64,
+                  'png_info': png_info}}
+    )
     return True
 
 
