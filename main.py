@@ -22,16 +22,28 @@ TESTVAR = os.environ.get("TESTVAR")
 APIBASE = os.environ.get("APIBASE")
 MONGO_URI = os.environ.get("MONGO_URL")
 
-# MongoDB connection
-try:
-    client = MongoClient(MONGO_URI)
-    db = client['sdxl_demo_db']
-    gens = db['generated_images']
-    # Test the connection
-    client.server_info()
-    logger.info("Successfully connected to MongoDB")
-except Exception as e:
-    logger.error(f"Failed to connect to MongoDB: {str(e)}")
+# Lazy imports
+from functools import lru_cache
+
+@lru_cache(maxsize=None)
+def get_db_client():
+    from pymongo import MongoClient
+    logger.info("Connecting to MongoDB...")
+    client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
+    try:
+        # Test the connection
+        client.server_info()
+        logger.info("Successfully connected to MongoDB")
+        return client
+    except Exception as e:
+        logger.error(f"Failed to connect to MongoDB: {str(e)}")
+        return None
+
+def get_db():
+    client = get_db_client()
+    if client is not None:
+        return client['sdxl_demo_db']
+    return None
 
 # Flexbox CSS (http://flexboxgrid.com/)
 gridlink = Link(rel="stylesheet", href="https://cdnjs.cloudflare.com/ajax/libs/flexboxgrid/6.3.1/flexboxgrid.min.css",
@@ -75,9 +87,21 @@ app, rt = fast_app(hdrs=(picolink, gridlink, NotStr(custom_css)), secret_key=SEC
 def get():
     try:
         logger.info("GET / route accessed")
+        
+        db = get_db()
+        if db is None:
+            logger.error("Failed to connect to the database")
+            return "Database connection error. Please try again later."
+
+        gens = db['generated_images']
+        
         # Log the number of documents in the collection
-        doc_count = gens.count_documents({})
-        logger.info(f"Number of documents in 'generated_images' collection: {doc_count}")
+        try:
+            doc_count = gens.count_documents({})
+            logger.info(f"Number of documents in 'generated_images' collection: {doc_count}")
+        except Exception as e:
+            logger.error(f"Error counting documents: {str(e)}")
+            return "Error accessing the database. Please try again later."
 
         form_inputs = [
             Div(
@@ -151,8 +175,14 @@ def get():
         add = Form(*form_inputs, Button("Generate 1 Image", cls="btn-primary"),
                    hx_post="/generate", target_id='gen-list', hx_swap="afterbegin", cls="card")
 
-        gen_containers = [generation_preview(g) for g in gens.find().sort('metadata.date_created', -1).limit(10)]
-        logger.info(f"Retrieved {len(gen_containers)} generation previews")
+        # Fetch generation previews
+        try:
+            gen_containers = [generation_preview(g) for g in gens.find().sort('metadata.date_created', -1).limit(10)]
+            logger.info(f"Retrieved {len(gen_containers)} generation previews")
+        except Exception as e:
+            logger.error(f"Error fetching generation previews: {str(e)}")
+            return "Error retrieving generation previews. Please try again later."
+
         gen_list = Div(*gen_containers, id='gen-list', cls="image-grid")
 
         return (
@@ -272,6 +302,12 @@ def generation_preview(g):
 
 @rt("/gens/{id}")
 def preview(id: str):
+    db = get_db()
+    if db is None:
+        logger.error("Failed to connect to the database in preview function")
+        return Div(P("Database connection error. Please try again later.", style="color: #93c5fd;"), cls="card image-card")
+
+    gens = db['generated_images']
     g = gens.find_one({'image_id': id})
     if g and 'image_base64' in g:
         return generation_preview(g)
@@ -292,59 +328,83 @@ def static(fname: str, ext: str): return FileResponse(f'{fname}.{ext}')
 @rt("/generate")
 def generate(prompt: str, negative_prompt: str, width: int, height: int, num_inference_steps: int,
              guidance_scale: float, clip_skip: int, seed: int, sampler: str):
-    image_id = str(uuid.uuid4())
+    try:
+        db = get_db()
+        if db is None:
+            logger.error("Failed to connect to the database")
+            return "Database connection error. Please try again later."
 
-    payload = {
-        "prompt": prompt,
-        "negative_prompt": negative_prompt,
-        "seed": seed,
-        "width": width,
-        "height": height,
-        "steps": num_inference_steps,
-        "sampler_name": sampler,
-        "scheduler": "Karras",
-        "cfg_scale": guidance_scale,
-        "batch_size": 1,
-        "hr_checkpoint_name": "NovelAIv2-7.safetensors",
-        "override_settings": {
-            "CLIP_stop_at_last_layers": clip_skip
+        gens = db['generated_images']
+
+        image_id = str(uuid.uuid4())
+
+        payload = {
+            "prompt": prompt,
+            "negative_prompt": negative_prompt,
+            "seed": seed,
+            "width": width,
+            "height": height,
+            "steps": num_inference_steps,
+            "sampler_name": sampler,
+            "scheduler": "Karras",
+            "cfg_scale": guidance_scale,
+            "batch_size": 1,
+            "hr_checkpoint_name": "NovelAIv2-7.safetensors",
+            "override_settings": {
+                "CLIP_stop_at_last_layers": clip_skip
+            }
         }
-    }
 
-    initial_doc = {
-        'image_id': image_id,
-        'metadata': {
-            'prompt': prompt,
-            'start_time': time.time(),
-            'date_created': datetime.utcnow()
+        initial_doc = {
+            'image_id': image_id,
+            'metadata': {
+                'prompt': prompt,
+                'start_time': time.time(),
+                'date_created': datetime.utcnow()
+            }
         }
-    }
-    gens.insert_one(initial_doc)
 
-    generate_and_save(payload, image_id)
+        gens.insert_one(initial_doc)
 
-    clear_inputs = [
-        Textarea(id="prompt", name="prompt", placeholder="Enter a positive prompt", rows=4,
-                 cls="form-control prompt-textarea", hx_swap_oob='true'),
-        Textarea(id="negative_prompt", name="negative_prompt", placeholder="Enter a negative prompt", rows=4,
-                 cls="form-control prompt-textarea", hx_swap_oob='true'),
-    ]
+        generate_and_save(payload, image_id)
 
-    return generation_preview(gens.find_one({'image_id': image_id})), *clear_inputs
+        clear_inputs = [
+            Textarea(id="prompt", name="prompt", placeholder="Enter a positive prompt", rows=4,
+                     cls="form-control prompt-textarea", hx_swap_oob='true'),
+            Textarea(id="negative_prompt", name="negative_prompt", placeholder="Enter a negative prompt", rows=4,
+                     cls="form-control prompt-textarea", hx_swap_oob='true'),
+        ]
+
+        return generation_preview(gens.find_one({'image_id': image_id})), *clear_inputs
+
+    except Exception as e:
+        logger.error(f"Error in generate function: {str(e)}")
+        return "An error occurred during image generation. Please try again later."
 
 @threaded
 def generate_and_save(payload, image_id):
-    image_base64, png_info = text2img(payload=payload)
+    try:
+        db = get_db()
+        if db is None:
+            logger.error("Failed to connect to the database in generate_and_save")
+            return False
 
-    # Parse png_info
-    png_info = json.loads(png_info)
+        gens = db['generated_images']
 
-    # Update MongoDB document with image data
-    gens.update_one(
-        {'image_id': image_id},
-        {'$set': {'image_base64': image_base64,
-                  'png_info': png_info}}
-    )
-    return True
+        image_base64, png_info = text2img(payload=payload)
+
+        # Parse png_info
+        png_info = json.loads(png_info)
+
+        # Update MongoDB document with image data
+        gens.update_one(
+            {'image_id': image_id},
+            {'$set': {'image_base64': image_base64,
+                      'png_info': png_info}}
+        )
+        return True
+    except Exception as e:
+        logger.error(f"Error in generate_and_save function: {str(e)}")
+        return False
 
 serve()
