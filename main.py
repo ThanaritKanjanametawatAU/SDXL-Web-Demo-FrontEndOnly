@@ -61,7 +61,7 @@ SECRET_KEY = os.environ.get("SECRET_KEY") or os.urandom(24).hex()
 app, rt = fast_app(hdrs=(picolink, gridlink, NotStr(custom_css)), secret_key=SECRET_KEY)
 
 @rt("/")
-def home():
+def get():
     form_inputs = [
         Div(
             Label("Positive Prompt", cls="prompt-label"),
