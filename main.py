@@ -1,3 +1,4 @@
+import logging
 from fasthtml.common import *
 from dotenv import load_dotenv
 from fastcore.parallel import threaded
@@ -12,15 +13,25 @@ import random
 import json
 import os
 
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 load_dotenv()
 TESTVAR = os.environ.get("TESTVAR")
 APIBASE = os.environ.get("APIBASE")
 MONGO_URI = os.environ.get("MONGO_URL")
 
 # MongoDB connection
-client = MongoClient(MONGO_URI)
-db = client['sdxl_demo_db']
-gens = db['generated_images']
+try:
+    client = MongoClient(MONGO_URI)
+    db = client['sdxl_demo_db']
+    gens = db['generated_images']
+    # Test the connection
+    client.server_info()
+    logger.info("Successfully connected to MongoDB")
+except Exception as e:
+    logger.error(f"Failed to connect to MongoDB: {str(e)}")
 
 # Flexbox CSS (http://flexboxgrid.com/)
 gridlink = Link(rel="stylesheet", href="https://cdnjs.cloudflare.com/ajax/libs/flexboxgrid/6.3.1/flexboxgrid.min.css",
@@ -62,171 +73,182 @@ app, rt = fast_app(hdrs=(picolink, gridlink, NotStr(custom_css)), secret_key=SEC
 
 @rt("/")
 def get():
-    form_inputs = [
-        Div(
-            Label("Positive Prompt", cls="prompt-label"),
-            Textarea(id="prompt", name="prompt", placeholder="Enter a positive prompt", rows=4,
-                     cls="form-control prompt-textarea")
-        ),
-        Div(
-            Label("Negative Prompt", cls="prompt-label"),
-            Textarea(id="negative_prompt", name="negative_prompt", placeholder="Enter a negative prompt", rows=4,
-                     cls="form-control prompt-textarea")
-        ),
-        Group(
-            Label("Width", cls="prompt-label"),
-            Div(
-                Input(type="range", id="width", name="width", min="64", max="2048", value="832", step="8",
-                      cls="range-input"),
-                Input(type="number", value="832", step="8", cls="form-control range-value", id="width-value"),
-                cls="range-container"
-            )
-        ),
-        Group(
-            Label("Height", cls="prompt-label"),
-            Div(
-                Input(type="range", id="height", name="height", min="64", max="2048", value="1216", step="8",
-                      cls="range-input"),
-                Input(type="number", value="1216", step="8", cls="form-control range-value", id="height-value"),
-                cls="range-container"
-            )
-        ),
-        Group(
-            Label("Steps", cls="prompt-label"),
-            Div(
-                Input(type="range", id="num_inference_steps", name="num_inference_steps", min="1", max="100",
-                      value="28", cls="range-input"),
-                Input(type="number", value="28", cls="form-control range-value", id="steps-value"),
-                cls="range-container"
-            )
-        ),
-        Group(
-            Label("Guidance Scale", cls="prompt-label"),
-            Div(
-                Input(type="range", id="guidance_scale", name="guidance_scale", min="0", max="10", step="0.5",
-                      value="5.0", cls="range-input"),
-                Input(type="number", value="5", step="0.5", cls="form-control range-value", id="guidance-value"),
-                cls="range-container"
-            )
-        ),
-        Group(
-            Label("Clip Skip", cls="prompt-label"),
-            Div(
-                Input(type="range", id="clip_skip", name="clip_skip", min="0", max="5", step="1",
-                      value="2", cls="range-input"),
-                Input(type="number", value="2", step="1", cls="form-control range-value", id="clip-skip-value"),
-                cls="range-container"
-            )
-        ),
-        Div(
-            Label("Seed", cls="prompt-label"),
-            Input(type="number", id="seed", name="seed", value="-1", cls="form-control")
-        ),
-        Div(
-            Label("Sampler", cls="prompt-label"),
-            Select(
-                Option("DPM++ 2M SDE", value="DPM++ 2M SDE", selected=True),
-                id="sampler", name="sampler", cls="form-control"
-            )
-        )
-    ]
+    try:
+        logger.info("GET / route accessed")
+        # Log the number of documents in the collection
+        doc_count = gens.count_documents({})
+        logger.info(f"Number of documents in 'generated_images' collection: {doc_count}")
 
-    add = Form(*form_inputs, Button("Generate 1 Image", cls="btn-primary"),
-               hx_post="/generate", target_id='gen-list', hx_swap="afterbegin", cls="card")
+        form_inputs = [
+            Div(
+                Label("Positive Prompt", cls="prompt-label"),
+                Textarea(id="prompt", name="prompt", placeholder="Enter a positive prompt", rows=4,
+                         cls="form-control prompt-textarea")
+            ),
+            Div(
+                Label("Negative Prompt", cls="prompt-label"),
+                Textarea(id="negative_prompt", name="negative_prompt", placeholder="Enter a negative prompt", rows=4,
+                         cls="form-control prompt-textarea")
+            ),
+            Group(
+                Label("Width", cls="prompt-label"),
+                Div(
+                    Input(type="range", id="width", name="width", min="64", max="2048", value="832", step="8",
+                          cls="range-input"),
+                    Input(type="number", value="832", step="8", cls="form-control range-value", id="width-value"),
+                    cls="range-container"
+                )
+            ),
+            Group(
+                Label("Height", cls="prompt-label"),
+                Div(
+                    Input(type="range", id="height", name="height", min="64", max="2048", value="1216", step="8",
+                          cls="range-input"),
+                    Input(type="number", value="1216", step="8", cls="form-control range-value", id="height-value"),
+                    cls="range-container"
+                )
+            ),
+            Group(
+                Label("Steps", cls="prompt-label"),
+                Div(
+                    Input(type="range", id="num_inference_steps", name="num_inference_steps", min="1", max="100",
+                          value="28", cls="range-input"),
+                    Input(type="number", value="28", cls="form-control range-value", id="steps-value"),
+                    cls="range-container"
+                )
+            ),
+            Group(
+                Label("Guidance Scale", cls="prompt-label"),
+                Div(
+                    Input(type="range", id="guidance_scale", name="guidance_scale", min="0", max="10", step="0.5",
+                          value="5.0", cls="range-input"),
+                    Input(type="number", value="5", step="0.5", cls="form-control range-value", id="guidance-value"),
+                    cls="range-container"
+                )
+            ),
+            Group(
+                Label("Clip Skip", cls="prompt-label"),
+                Div(
+                    Input(type="range", id="clip_skip", name="clip_skip", min="0", max="5", step="1",
+                          value="2", cls="range-input"),
+                    Input(type="number", value="2", step="1", cls="form-control range-value", id="clip-skip-value"),
+                    cls="range-container"
+                )
+            ),
+            Div(
+                Label("Seed", cls="prompt-label"),
+                Input(type="number", id="seed", name="seed", value="-1", cls="form-control")
+            ),
+            Div(
+                Label("Sampler", cls="prompt-label"),
+                Select(
+                    Option("DPM++ 2M SDE", value="DPM++ 2M SDE", selected=True),
+                    id="sampler", name="sampler", cls="form-control"
+                )
+            )
+        ]
 
-    gen_containers = [generation_preview(g) for g in gens.find().sort('metadata.date_created', -1).limit(10)]
-    gen_list = Div(*gen_containers, id='gen-list', cls="image-grid")
+        add = Form(*form_inputs, Button("Generate 1 Image", cls="btn-primary"),
+                   hx_post="/generate", target_id='gen-list', hx_swap="afterbegin", cls="card")
 
-    return (
-        Socials(
-            title="Image Generation SDXL",
-            site_name="SDXL Demo",
-            description="A demo of SDXL image generation",
-            image="https://example.com/sdxl-og-image.jpg",
-            url="https://your-deployment-url.com",
-            twitter_site="@your_twitter",
-        ),
-        Container(
-            Card(
-                H1('Image Generation SDXL', cls="text-center", style="color: #60a5fa; margin-bottom: 24px;"),
-                add,
-                gen_list,
-                footer=(
-                    P(
-                        "Powered by SDXL and FastHTML. ",
-                        A("Learn more", href="https://your-docs-url.com"),
-                        " about this project.",
-                    )
+        gen_containers = [generation_preview(g) for g in gens.find().sort('metadata.date_created', -1).limit(10)]
+        logger.info(f"Retrieved {len(gen_containers)} generation previews")
+        gen_list = Div(*gen_containers, id='gen-list', cls="image-grid")
+
+        return (
+            Socials(
+                title="Image Generation SDXL",
+                site_name="SDXL Demo",
+                description="A demo of SDXL image generation",
+                image="https://example.com/sdxl-og-image.jpg",
+                url="https://your-deployment-url.com",
+                twitter_site="@your_twitter",
+            ),
+            Container(
+                Card(
+                    H1('Image Generation SDXL', cls="text-center", style="color: #60a5fa; margin-bottom: 24px;"),
+                    add,
+                    gen_list,
+                    footer=(
+                        P(
+                            "Powered by SDXL and FastHTML. ",
+                            A("Learn more", href="https://your-docs-url.com"),
+                            " about this project.",
+                        )
+                    ),
                 ),
             ),
-        ),
-        Script("""
-            // Function to handle width and height inputs
-            function setupDivisibleBy8Input(container) {
-                const rangeInput = container.querySelector('.range-input');
-                const valueInput = container.querySelector('.range-value');
+            Script("""
+                // Function to handle width and height inputs
+                function setupDivisibleBy8Input(container) {
+                    const rangeInput = container.querySelector('.range-input');
+                    const valueInput = container.querySelector('.range-value');
 
-                function roundToNearest8(value) {
-                    return Math.round(value / 8) * 8;
+                    function roundToNearest8(value) {
+                        return Math.round(value / 8) * 8;
+                    }
+
+                    function updateValue(value, shouldRound = true) {
+                        let processedValue = shouldRound ? roundToNearest8(value) : value;
+                        const min = parseInt(rangeInput.min);
+                        const max = parseInt(rangeInput.max);
+
+                        if (shouldRound) {
+                            processedValue = Math.max(min, Math.min(max, processedValue));
+                            rangeInput.value = processedValue;
+                        }
+
+                        valueInput.value = processedValue;
+                    }
+
+                    rangeInput.addEventListener('input', () => updateValue(rangeInput.value));
+                    valueInput.addEventListener('input', () => updateValue(valueInput.value, false));
+                    valueInput.addEventListener('blur', () => {
+                        if (valueInput.value === '') {
+                            updateValue(rangeInput.value);
+                        } else {
+                            updateValue(valueInput.value);
+                        }
+                    });
                 }
 
-                function updateValue(value, shouldRound = true) {
-                    let processedValue = shouldRound ? roundToNearest8(value) : value;
-                    const min = parseInt(rangeInput.min);
-                    const max = parseInt(rangeInput.max);
+                // Function to handle all other inputs
+                function setupOtherInput(container) {
+                    const rangeInput = container.querySelector('.range-input');
+                    const valueInput = container.querySelector('.range-value');
 
-                    if (shouldRound) {
-                        processedValue = Math.max(min, Math.min(max, processedValue));
+                    function updateValue(value) {
+                        const min = parseFloat(rangeInput.min);
+                        const max = parseFloat(rangeInput.max);
+                        const step = parseFloat(rangeInput.step) || 1;
+
+                        let processedValue = Math.max(min, Math.min(max, parseFloat(value)));
+                        processedValue = Math.round(processedValue / step) * step;
+
                         rangeInput.value = processedValue;
+                        valueInput.value = processedValue;
                     }
 
-                    valueInput.value = processedValue;
+                    rangeInput.addEventListener('input', () => updateValue(rangeInput.value));
+                    valueInput.addEventListener('input', () => updateValue(valueInput.value));
+                    valueInput.addEventListener('blur', () => {
+                        if (valueInput.value === '') {
+                            updateValue(rangeInput.value);
+                        }
+                    });
                 }
 
-                rangeInput.addEventListener('input', () => updateValue(rangeInput.value));
-                valueInput.addEventListener('input', () => updateValue(valueInput.value, false));
-                valueInput.addEventListener('blur', () => {
-                    if (valueInput.value === '') {
-                        updateValue(rangeInput.value);
-                    } else {
-                        updateValue(valueInput.value);
-                    }
-                });
-            }
+                // Set up width and height inputs
+                document.querySelectorAll('#width .range-container, #height .range-container').forEach(setupDivisibleBy8Input);
 
-            // Function to handle all other inputs
-            function setupOtherInput(container) {
-                const rangeInput = container.querySelector('.range-input');
-                const valueInput = container.querySelector('.range-value');
+                // Set up all other inputs
+                document.querySelectorAll('.range-container:not(#width .range-container):not(#height .range-container)').forEach(setupOtherInput);
+            """),
+        )
 
-                function updateValue(value) {
-                    const min = parseFloat(rangeInput.min);
-                    const max = parseFloat(rangeInput.max);
-                    const step = parseFloat(rangeInput.step) || 1;
-
-                    let processedValue = Math.max(min, Math.min(max, parseFloat(value)));
-                    processedValue = Math.round(processedValue / step) * step;
-
-                    rangeInput.value = processedValue;
-                    valueInput.value = processedValue;
-                }
-
-                rangeInput.addEventListener('input', () => updateValue(rangeInput.value));
-                valueInput.addEventListener('input', () => updateValue(valueInput.value));
-                valueInput.addEventListener('blur', () => {
-                    if (valueInput.value === '') {
-                        updateValue(rangeInput.value);
-                    }
-                });
-            }
-
-            // Set up width and height inputs
-            document.querySelectorAll('#width .range-container, #height .range-container').forEach(setupDivisibleBy8Input);
-
-            // Set up all other inputs
-            document.querySelectorAll('.range-container:not(#width .range-container):not(#height .range-container)').forEach(setupOtherInput);
-        """),
-    )
+    except Exception as e:
+        logger.error(f"Error in GET / route: {str(e)}")
+        return "An error occurred. Please check the logs for more information."
 
 # Show the image (if available) and prompt for a generation
 def generation_preview(g):
