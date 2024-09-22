@@ -11,7 +11,6 @@ import time
 import random
 import json
 import os
-import secrets
 
 load_dotenv()
 TESTVAR = os.environ.get("TESTVAR")
@@ -56,18 +55,11 @@ custom_css = """
 </style>
 """
 
-# Generate a random secret key
-secret_key = secrets.token_hex(16)
-
-# Or use an environment variable (recommended for production)
-# secret_key = os.environ.get('SECRET_KEY')
-
-app = FastHTML(hdrs=(picolink, gridlink, NotStr(custom_css)), 
-               secret_key=secret_key, use_sessions=False)
 
 
-# Main page
-@app.get("/")
+app, rt = fast_app(hdrs=(picolink, gridlink, NotStr(custom_css)))
+
+@rt("/")
 def home():
     form_inputs = [
         Div(
@@ -139,15 +131,34 @@ def home():
     ]
 
     add = Form(*form_inputs, Button("Generate 1 Image", cls="btn-primary"),
-               hx_post="/", target_id='gen-list', hx_swap="afterbegin", cls="card")
+               hx_post="/generate", target_id='gen-list', hx_swap="afterbegin", cls="card")
 
     gen_containers = [generation_preview(g) for g in gens.find().sort('metadata.date_created', -1).limit(10)]
-    gen_list = Div(*gen_containers, id='gen-list', cls="image-grid")  # flexbox container
+    gen_list = Div(*gen_containers, id='gen-list', cls="image-grid")
 
-    return Title('Image Generation SDXL'), Main(
-        H1('Image Generation SDXL', cls="text-center", style="color: #60a5fa; margin-bottom: 24px;"),
-        add,
-        gen_list,
+    return (
+        Socials(
+            title="Image Generation SDXL",
+            site_name="SDXL Demo",
+            description="A demo of SDXL image generation",
+            image="https://example.com/sdxl-og-image.jpg",
+            url="https://your-deployment-url.com",
+            twitter_site="@your_twitter",
+        ),
+        Container(
+            Card(
+                H1('Image Generation SDXL', cls="text-center", style="color: #60a5fa; margin-bottom: 24px;"),
+                add,
+                gen_list,
+                footer=(
+                    P(
+                        "Powered by SDXL and FastHTML. ",
+                        A("Learn more", href="https://your-docs-url.com"),
+                        " about this project.",
+                    )
+                ),
+            ),
+        ),
         Script("""
             // Function to handle width and height inputs
             function setupDivisibleBy8Input(container) {
@@ -214,9 +225,7 @@ def home():
             // Set up all other inputs
             document.querySelectorAll('.range-container:not(#width .range-container):not(#height .range-container)').forEach(setupOtherInput);
         """),
-        cls='container'
     )
-
 
 # Show the image (if available) and prompt for a generation
 def generation_preview(g):
@@ -238,9 +247,7 @@ def generation_preview(g):
     else:
         return Div(P("No image data available", style="color: #93c5fd;"), cls="card image-card")
 
-
-# A pending preview keeps polling this route until we return the image preview
-@app.get("/gens/{id}")
+@rt("/gens/{id}")
 def preview(id: str):
     g = gens.find_one({'image_id': id})
     if g and 'image_base64' in g:
@@ -256,16 +263,12 @@ def preview(id: str):
     else:
         return Div(P("No image data available", style="color: #93c5fd;"), cls="card image-card")
 
-
-# For images, CSS, etc.
-@app.get("/{fname:path}.{ext:static}")
+@rt("/{fname:path}.{ext:static}")
 def static(fname: str, ext: str): return FileResponse(f'{fname}.{ext}')
 
-
-# Generation route
-@app.post("/")
-def post(prompt: str, negative_prompt: str, width: int, height: int, num_inference_steps: int,
-         guidance_scale: float, clip_skip: int, seed: int, sampler: str):
+@rt("/generate")
+def generate(prompt: str, negative_prompt: str, width: int, height: int, num_inference_steps: int,
+             guidance_scale: float, clip_skip: int, seed: int, sampler: str):
     image_id = str(uuid.uuid4())
 
     payload = {
@@ -285,7 +288,6 @@ def post(prompt: str, negative_prompt: str, width: int, height: int, num_inferen
         }
     }
 
-    # Create initial document with start time
     initial_doc = {
         'image_id': image_id,
         'metadata': {
@@ -298,7 +300,6 @@ def post(prompt: str, negative_prompt: str, width: int, height: int, num_inferen
 
     generate_and_save(payload, image_id)
 
-    # Clear inputs (you may need to adjust this based on your needs)
     clear_inputs = [
         Textarea(id="prompt", name="prompt", placeholder="Enter a positive prompt", rows=4,
                  cls="form-control prompt-textarea", hx_swap_oob='true'),
@@ -308,8 +309,6 @@ def post(prompt: str, negative_prompt: str, width: int, height: int, num_inferen
 
     return generation_preview(gens.find_one({'image_id': image_id})), *clear_inputs
 
-
-# Generate an image and save it to MongoDB (in a separate thread)
 @threaded
 def generate_and_save(payload, image_id):
     image_base64, png_info = text2img(payload=payload)
@@ -325,6 +324,4 @@ def generate_and_save(payload, image_id):
     )
     return True
 
-
-# if __name__ == '__main__':
-#     uvicorn.run("main:app", host='0.0.0.0', port=int(os.getenv("PORT", default=5000)), reload=True)
+serve()
