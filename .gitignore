@@ -17,4 +17,3 @@ __pycache__
 !/database/gens/gen_results_will_be_put_here
 
 # Test Files
-/test_api.py
