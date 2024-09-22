@@ -1,64 +1,69 @@
 import os
-
-# from api.call_api import *
-# from main import APIBASE
 from dotenv import load_dotenv
 import requests
 import base64
 from PIL import Image
 from io import BytesIO
+from api.text2img import text2img
+from pymongo import MongoClient
+import uuid
+from datetime import datetime
 
+# Load environment variables
 load_dotenv()
-APIBASE = os.environ.get("APIBASE")
 
+# MongoDB connection
+MONGO_URI = os.environ.get("MONGO_URL")
+client = MongoClient(MONGO_URI)
+db = client['sdxl_demo_db']
+collection = db['generated_images']
 
+# Generate image
+image, png_info = text2img()
 
-# API URL
-url = f"{APIBASE}/sdapi/v1/txt2img"
+# Convert image to base64
+buffered = BytesIO()
+image.save(buffered, format="PNG")
+image_base64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
 
-
-# API request payload
-data = {
-    "prompt": "1girl, pale skin, {purple eyes}, sanpaku, very long hair, pink hair, teeth, bloomers, slippers, waist apron, lollipop, spoon, best quality, amazing quality, very aesthetic, absurdres, masterpiece",
-    "seed": 768779861,
-    "width": 896,
-    "height": 1152,
-    "steps": 20,
-    "sampler_name": "DPM++ 2M SDE",
-    "scheduler": "Karras",
-    "cfg_scale": 5,
-    "batch_size": 1,
-    "hr_checkpoint_name": "NovelAIv2-7.safetensors"
+# Store in MongoDB
+image_id = str(uuid.uuid4())
+document = {
+    'image_id': image_id,
+    'image_base64': image_base64,
+    'metadata': {
+        'prompt': "No prompt available",
+        'date_created': datetime.utcnow()
+    }
 }
+insert_result = collection.insert_one(document)
+print(f"Image stored in MongoDB with ID: {insert_result.inserted_id}")
 
-# Sending POST request to the API
-response = requests.post(url, json=data)
+# Retrieve from MongoDB
+retrieved_doc = collection.find_one({'image_id': image_id})
 
-# Check if the response is successful
-if response.status_code == 200:
-    # Assuming the response contains a base64 string under 'image' key
-    response_data = response.json()
-    base64_image = response_data['images'][0]  # Extract the base64 image string
-
-    # Decode the base64 string into image data
-    image_data = base64.b64decode(base64_image)
-
-    # Convert the image data to an actual image
-    image = Image.open(BytesIO(image_data))
-
-    # Save or show the image
-    image.save("output_image.png")  # Save as a file
-
-    # Display the info
-    png_info = response_data['info']
-    print(png_info)
+if retrieved_doc:
+    # Convert base64 back to image
+    retrieved_image_data = base64.b64decode(retrieved_doc['image_base64'])
+    retrieved_image = Image.open(BytesIO(retrieved_image_data))
+    
+    # Save retrieved image to file
+    retrieved_image.save(f"retrieved_image_{image_id}.png")
+    print(f"Retrieved image saved as: retrieved_image_{image_id}.png")
+    
+    # Verify data integrity
+    original_bytes = buffered.getvalue()
+    retrieved_bytes = BytesIO()
+    retrieved_image.save(retrieved_bytes, format="PNG")
+    retrieved_bytes = retrieved_bytes.getvalue()
+    
+    if original_bytes == retrieved_bytes:
+        print("Data integrity verified: Original and retrieved images are identical.")
+    else:
+        print("Warning: Data integrity check failed. Images are not identical.")
 else:
-    print(f"Error: {response.status_code}, {response.text}")
+    print("Error: Could not retrieve image from MongoDB.")
 
+# Close MongoDB connection
+client.close()
 
-
-
-
-
-# Using Default Payload
-# image = generate_image(url="APIBASE", payload=None, save_path="database/gens/something2/2.png")
