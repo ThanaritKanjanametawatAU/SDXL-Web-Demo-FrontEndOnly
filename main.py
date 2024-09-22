@@ -10,6 +10,8 @@ from datetime import datetime
 import time
 import random
 import json
+import os
+import secrets
 
 load_dotenv()
 TESTVAR = os.environ.get("TESTVAR")
@@ -54,8 +56,13 @@ custom_css = """
 </style>
 """
 
-# Our FastHTML app
-app = FastHTML(hdrs=(picolink, gridlink, NotStr(custom_css)))
+# Generate a random secret key
+secret_key = secrets.token_hex(16)
+
+# Or use an environment variable (recommended for production)
+# secret_key = os.environ.get('SECRET_KEY')
+
+app = FastHTML(hdrs=(picolink, gridlink, NotStr(custom_css)), secret_key=secret_key)
 
 
 # Main page
