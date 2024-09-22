@@ -12,6 +12,8 @@ import time
 import random
 import json
 import os
+import io
+from PIL import Image
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -292,8 +294,10 @@ def get():
 def generation_preview(g):
     if g and 'image_base64' in g:
         prompt = g.get('metadata', {}).get('prompt', 'No prompt available')
+        # Use a data URI with a compressed JPEG instead of PNG
+        compressed_image = compress_image(g['image_base64'])
         return Div(
-            Img(src=f"data:image/png;base64,{g['image_base64']}", alt="Generated image", style="width: 100%; border-radius: 8px;"),
+            Img(src=f"data:image/jpeg;base64,{compressed_image}", alt="Generated image", style="width: 100%; border-radius: 8px;"),
             Div(P(B("Prompt: "), prompt, style="margin-top: 12px; font-size: 14px; color: #93c5fd;")),
             cls="card image-card", id=f'gen-{g["image_id"]}'
         )
@@ -307,6 +311,24 @@ def generation_preview(g):
         )
     else:
         return Div(P("No image data available", style="color: #93c5fd;"), cls="card image-card")
+
+def compress_image(base64_string, quality=85, max_size=(800, 800)):
+    # Decode base64 string to bytes
+    image_data = base64.b64decode(base64_string)
+    
+    # Open the image using PIL
+    with Image.open(io.BytesIO(image_data)) as img:
+        # Resize the image if it's larger than max_size
+        img.thumbnail(max_size, Image.LANCZOS)
+        
+        # Save the image as JPEG with the specified quality
+        buffer = io.BytesIO()
+        img.convert('RGB').save(buffer, format='JPEG', quality=quality, optimize=True)
+        
+        # Get the compressed image as base64
+        compressed_base64 = base64.b64encode(buffer.getvalue()).decode('utf-8')
+    
+    return compressed_base64
 
 @rt("/gens/{id}")
 def preview(id: str):
@@ -376,6 +398,14 @@ def generate(prompt: str, negative_prompt: str, width: int, height: int, num_inf
 
         generate_and_save(payload, image_id)
 
+        # Instead of returning the full preview, return a placeholder
+        placeholder = Div(
+            P(f"Image generation started. ID: {image_id}", style="color: #93c5fd;"),
+            Div(cls="progress-bar", style="width: 0%; height: 5px; background-color: #4CAF50; transition: width 0.5s;"),
+            cls="card image-card", id=f'gen-{image_id}',
+            hx_get=f"/gens/{image_id}", hx_trigger="load delay:500ms", hx_swap="outerHTML"
+        )
+
         clear_inputs = [
             Textarea(id="prompt", name="prompt", placeholder="Enter a positive prompt", rows=4,
                      cls="form-control prompt-textarea", hx_swap_oob='true'),
@@ -383,7 +413,7 @@ def generate(prompt: str, negative_prompt: str, width: int, height: int, num_inf
                      cls="form-control prompt-textarea", hx_swap_oob='true'),
         ]
 
-        return generation_preview(gens.find_one({'image_id': image_id})), *clear_inputs
+        return placeholder, *clear_inputs
 
     except Exception as e:
         logger.error(f"Error in generate function: {str(e)}")
