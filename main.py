@@ -62,7 +62,8 @@ secret_key = secrets.token_hex(16)
 # Or use an environment variable (recommended for production)
 # secret_key = os.environ.get('SECRET_KEY')
 
-app = FastHTML(hdrs=(picolink, gridlink, NotStr(custom_css)), secret_key=secret_key)
+app = FastHTML(hdrs=(picolink, gridlink, NotStr(custom_css)), 
+               secret_key=secret_key, use_sessions=False)
 
 
 # Main page
@@ -327,3 +328,6 @@ def generate_and_save(payload, image_id):
 
 # if __name__ == '__main__':
 #     uvicorn.run("main:app", host='0.0.0.0', port=int(os.getenv("PORT", default=5000)), reload=True)
+
+
+app = app.asgi_app()
