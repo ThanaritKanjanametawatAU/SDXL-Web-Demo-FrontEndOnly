@@ -14,6 +14,7 @@ import json
 import os
 import io
 from PIL import Image
+from fastapi import Request
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -84,6 +85,19 @@ custom_css = """
     .prompt-textarea { min-height: 120px; resize: vertical; }
     .progress-bar {
         transition: width 0.5s ease-in-out;
+    }
+    .delete-btn {
+        background-color: #ef4444;
+        color: #ffffff;
+        padding: 6px 12px;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 14px;
+        transition: background-color 0.3s ease;
+    }
+    .delete-btn:hover {
+        background-color: #dc2626;
     }
 </style>
 """
@@ -301,7 +315,15 @@ def generation_preview(g):
         return Div(
             Img(src=f"data:image/jpeg;base64,{compressed_image}", alt="Generated image", style="width: 100%; border-radius: 8px;"),
             Div(P(B("Prompt: "), prompt, style="margin-top: 12px; font-size: 14px; color: #93c5fd;")),
-            cls="card image-card", id=f'gen-{g["image_id"]}'
+            Div(
+                Button("Delete", 
+                       cls="delete-btn",
+                       hx_delete=f"/delete/{g['image_id']}",
+                       hx_target=f"#gen-{g['image_id']}",
+                       hx_swap="outerHTML"),
+                style="position: absolute; bottom: 10px; right: 10px;"
+            ),
+            cls="card image-card", id=f'gen-{g["image_id"]}', style="position: relative;"
         )
     elif g:
         prompt = g.get('metadata', {}).get('prompt', 'No prompt available')
@@ -446,5 +468,26 @@ def generate_and_save(payload, image_id):
     except Exception as e:
         logger.error(f"Error in generate_and_save function: {str(e)}")
         return False
+
+# Add this new route for deleting images
+@rt("/delete/{id}", methods=["DELETE"])
+async def delete_image(request: Request, id: str):
+    try:
+        db = get_db()
+        if db is None:
+            logger.error("Failed to connect to the database in delete_image function")
+            return "Database connection error. Please try again later."
+
+        gens = db['generated_images']
+        result = gens.delete_one({'image_id': id})
+
+        if result.deleted_count == 1:
+            return ""  # Return an empty string to remove the element from the DOM
+        else:
+            return "Image not found or already deleted."
+
+    except Exception as e:
+        logger.error(f"Error in delete_image function: {str(e)}")
+        return "An error occurred while deleting the image. Please try again later."
 
 serve()
