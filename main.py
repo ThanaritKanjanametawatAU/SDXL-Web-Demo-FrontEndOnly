@@ -242,7 +242,6 @@ def get():
                     }
 
                     rangeInput.addEventListener('input', () => updateValue(rangeInput.value));
-                    valueInput.addEventListener('input', () => updateValue(valueInput.value, false));
                     valueInput.addEventListener('blur', () => {
                         if (valueInput.value === '') {
                             updateValue(rangeInput.value);
@@ -269,11 +268,14 @@ def get():
                         valueInput.value = processedValue;
                     }
 
-                    rangeInput.addEventListener('input', () => updateValue(rangeInput.value));
-                    valueInput.addEventListener('input', () => updateValue(valueInput.value));
+                    rangeInput.addEventListener('input', () => {
+                        valueInput.value = rangeInput.value;
+                    });
                     valueInput.addEventListener('blur', () => {
                         if (valueInput.value === '') {
                             updateValue(rangeInput.value);
+                        } else {
+                            updateValue(valueInput.value);
                         }
                     });
                 }
