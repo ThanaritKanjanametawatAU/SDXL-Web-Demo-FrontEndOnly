@@ -19,6 +19,7 @@ from fastapi import Request
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+default_negative_prompt = "nsfw, nudity, lowres, bad, error, fewer, extra, missing, worst quality, jpeg artifacts, bad quality, watermark, unfinished, displeasing, chromatic aberration, signature, extra digits, artistic error, username, scan, [abstract], text"
 
 load_dotenv()
 TESTVAR = os.environ.get("TESTVAR")
@@ -107,6 +108,11 @@ SECRET_KEY = os.environ.get("SECRET_KEY") or os.urandom(24).hex()
 
 app, rt = fast_app(hdrs=(picolink, gridlink, NotStr(custom_css)), secret_key=SECRET_KEY)
 
+# Add this function to read prompts from the file
+def read_prompts():
+    with open('prompts.txt', 'r') as f:
+        return [line.strip() for line in f]
+
 @rt("/")
 def get():
     try:
@@ -130,8 +136,13 @@ def get():
         form_inputs = [
             Div(
                 Label("Positive Prompt", cls="prompt-label"),
-                Textarea(id="prompt", name="prompt", placeholder="Enter a positive prompt", rows=4,
-                         cls="form-control prompt-textarea")
+                Div(
+                    Textarea(id="prompt", name="prompt", placeholder="Enter a positive prompt", rows=4,
+                             cls="form-control prompt-textarea"),
+                    Button("🎲", id="randomize-prompt", cls="btn btn-secondary", type="button",
+                           style="position: absolute; top: 0; right: 0; padding: 5px 10px;"),
+                    style="position: relative;"
+                )
             ),
             Div(
                 Label("Negative Prompt", cls="prompt-label"),
@@ -299,6 +310,16 @@ def get():
 
                 // Set up all other inputs
                 document.querySelectorAll('.range-container:not(#width .range-container):not(#height .range-container)').forEach(setupOtherInput);
+
+                // Add this code for the randomizer
+                document.getElementById('randomize-prompt').addEventListener('click', function(event) {
+                    event.preventDefault(); // Prevent form submission
+                    fetch('/random-prompt')
+                        .then(response => response.text())
+                        .then(prompt => {
+                            document.getElementById('prompt').value = prompt;
+                        });
+                });
             """),
         )
 
@@ -394,7 +415,7 @@ def generate(prompt: str, negative_prompt: str, width: int, height: int, num_inf
 
         payload = {
             "prompt": prompt,
-            "negative_prompt": negative_prompt,
+            "negative_prompt": negative_prompt or default_negative_prompt,
             "seed": seed,
             "width": width,
             "height": height,
@@ -489,5 +510,11 @@ async def delete_image(request: Request, id: str):
     except Exception as e:
         logger.error(f"Error in delete_image function: {str(e)}")
         return "An error occurred while deleting the image. Please try again later."
+
+# Add this new route for getting a random prompt
+@rt("/random-prompt")
+def random_prompt():
+    prompts = read_prompts()
+    return random.choice(prompts)
 
 serve()
