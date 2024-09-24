@@ -14,13 +14,19 @@
 
 1. **Install Python 3.12.6**
 
-2. **Create a virtual environment**
+2. **Clone the repository**
+
+   ```sh
+   git clone https://github.com/runpod-cloud/sparkjoy-image-generation-web-app-demo.git
+   ```
+
+3. **Create a virtual environment**
 
    ```sh
    python -m venv venv
    ```
 
-3. **Activate the virtual environment**
+4. **Activate the virtual environment**
 
    ```sh
    source venv/bin/activate
@@ -32,13 +38,13 @@
    deactivate
    ```
 
-4. **Install requirements**
+5. **Install requirements**
 
    ```sh
    pip install -r requirements.txt
    ```
 
-5. **Run the application**
+6. **Run the application**
 
    ```sh
    ./start_server.sh
@@ -56,5 +62,5 @@
    uvicorn main:app --reload --port 5000
    ```
 
-6. **Open your browser and navigate to** [localhost:5000](http://localhost:5000)
+7. **Open your browser and navigate to** [localhost:5000](http://localhost:5000)
 
