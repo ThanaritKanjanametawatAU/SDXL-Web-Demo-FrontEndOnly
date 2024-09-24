@@ -24,18 +24,19 @@
 3. **Set up .env file**
 
    ```sh
-   cp .env.example .env
-   ```
-
-4. **Create a virtual environment**
-
-   ```sh
    TESTVAR = "This is test variable"
    APIBASE = "Legacy API Base (Will change to serverless endpoint)"
    MONGO_URL = "MongoDB URL with Username and Password"
    RUNPOD_API_KEY = "RunPod API Key for calling RunPod API"
    RUNPOD_SERVERLESS_ENDPOINT = "RunPod Serverless Endpoint URL"
    ```
+
+4. **Create a virtual environment**
+
+   ```sh
+   python -m venv venv
+   ```
+
 
 5. **Activate the virtual environment**
 
